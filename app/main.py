@@ -137,7 +137,7 @@ def create_app() -> FastAPI:
             "version": settings.app_version
         })
         
-        # Initialize database connection pool
+        # Initialize database connection pool with retry logic
         try:
             from app.core.database import get_database_client
             db_client = get_database_client()
@@ -146,7 +146,11 @@ def create_app() -> FastAPI:
             logger.info("Database connection pool initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize database connection pool: {e}")
-            raise
+            # In production, you might want to continue without DB for health checks
+            if not settings.debug:
+                logger.warning("Continuing startup without database connection")
+            else:
+                raise
         
         logger.info("Application startup completed successfully", extra={
             "event": "app_startup_complete"

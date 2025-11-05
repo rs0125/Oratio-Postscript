@@ -24,28 +24,44 @@ class DatabaseClient:
         return self._pool
     
     async def _create_pool(self) -> asyncpg.Pool:
-        """Create PostgreSQL connection pool using session pooler."""
-        try:
-            from app.core.config import settings
-            
-            # Create connection pool with session pooler connection string
-            pool = await asyncpg.create_pool(
-                dsn=settings.supabase_pooler_connection_string,
-                min_size=1,
-                max_size=10,
-                command_timeout=60,
-                server_settings={
-                    'jit': 'off'  # Disable JIT for better performance with pooling
-                }
-            )
-            
-            logger.info("Supabase session pooler connection pool created successfully")
-            self._is_connected = True
-            return pool
-        except Exception as e:
-            logger.error(f"Failed to create connection pool: {e}")
-            self._is_connected = False
-            raise
+        """Create PostgreSQL connection pool using session pooler with retry logic."""
+        from app.core.config import settings
+        
+        max_retries = 3
+        retry_delay = 2
+        
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Attempting database connection (attempt {attempt + 1}/{max_retries})")
+                
+                # Create connection pool with session pooler connection string
+                pool = await asyncpg.create_pool(
+                    dsn=settings.supabase_pooler_connection_string,
+                    min_size=1,
+                    max_size=5,  # Reduced for Render's resource limits
+                    command_timeout=30,  # Reduced timeout
+                    server_settings={
+                        'jit': 'off'  # Disable JIT for better performance with pooling
+                    }
+                )
+                
+                # Test the connection
+                async with pool.acquire() as conn:
+                    await conn.execute("SELECT 1")
+                
+                logger.info("Supabase session pooler connection pool created successfully")
+                self._is_connected = True
+                return pool
+                
+            except Exception as e:
+                logger.error(f"Failed to create connection pool (attempt {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    logger.info(f"Retrying in {retry_delay} seconds...")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    self._is_connected = False
+                    raise
     
     @asynccontextmanager
     async def get_connection(self):
