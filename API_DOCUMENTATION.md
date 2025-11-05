@@ -17,14 +17,12 @@ The Speech Similarity API processes audio data, transcribes it using OpenAI Whis
 
 #### `POST /similarity/{session_id}`
 
-Calculate similarity between session audio transcription and reference text.
+Calculate similarity between stored session transcription and reference text.
 
-**Description**: This endpoint performs the complete processing pipeline:
-1. Retrieves session data from database
-2. Decodes and validates audio data  
-3. Transcribes audio using OpenAI Whisper
-4. Generates embeddings for both transcribed text and reference text
-5. Calculates cosine similarity between embeddings
+**Description**: This endpoint performs the similarity calculation pipeline:
+1. Retrieves session data from database (with pre-transcribed speech text)
+2. Generates embeddings for both stored transcribed text and reference text
+3. Calculates cosine similarity between embeddings
 
 **Parameters**:
 - `session_id` (path, integer, required): ID of the session containing audio data
@@ -83,9 +81,9 @@ Calculate similarity between session audio transcription and reference text.
 
 #### `PUT /sessions/{session_id}/audio`
 
-Update audio data for an existing session.
+Update session by transcribing new audio data.
 
-**Description**: Replace the audio data for a session with new base64-encoded audio. Useful for correcting or updating audio recordings without creating new sessions.
+**Description**: Replace the session's speech content by transcribing new base64-encoded audio using OpenAI Whisper. The transcribed text is stored in the session, replacing any previous speech content.
 
 **Parameters**:
 - `session_id` (path, integer, required): ID of the session to update
@@ -108,7 +106,7 @@ Update audio data for an existing session.
 ```json
 {
   "session_id": 123,
-  "message": "Audio data updated successfully",
+  "message": "Audio transcribed and session updated successfully",
   "updated_at": "2023-10-31T10:35:00Z"
 }
 ```
@@ -329,7 +327,7 @@ All endpoints return errors in a consistent format:
 ## Rate Limits & Constraints
 
 - **Max audio size**: 25MB (configurable via `MAX_AUDIO_SIZE_MB`)
-- **Request timeout**: 300 seconds (configurable via `REQUEST_TIMEOUT_SECONDS`)
+
 - **Reference text limit**: 50,000 characters
 - **Supported audio formats**: WAV, MP3, FLAC, M4A, OGG, WebM
 - **Audio encoding**: Base64
@@ -350,8 +348,9 @@ uvicorn app.main:app --reload
 
 **Environment Setup**:
 Copy `.env.example` to `.env` and configure:
-- `SUPABASE_URL` and `SUPABASE_KEY`
-- `OPENAI_API_KEY`
+- `SUPABASE_POOLER_CONNECTION_STRING` - PostgreSQL connection string for Supabase session pooler
+- `OPENAI_API_KEY` - OpenAI API key for Whisper and embeddings
+- `OPENAI_ORGANIZATION` - Optional: only needed if you have an OpenAI organization
 - Other optional settings
 
 ---

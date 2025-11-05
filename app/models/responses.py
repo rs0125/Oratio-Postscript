@@ -32,12 +32,11 @@ class SimilarityResponse(BaseModel):
                 "session_id": 123,
                 "session_data": {
                     "id": 123,
-                    "speech": "Sample transcribed speech text",
+                    "speech": "This is the transcribed speech content from the audio file using OpenAI Whisper. The user was discussing the main topic and how it relates to various concepts.",
                     "questions": {"q1": "What is the main topic?"},
                     "created_by": "user123",
                     "generated_by": "speech-api-v1",
-                    "created_at": "2023-10-31T10:30:00Z",
-                    "audio": "UklGRnoGAABXQVZFZm10..."
+                    "created_at": "2023-10-31T10:30:00Z"
                 },
                 "transcribed_text": "This is the transcribed text from the audio file using OpenAI Whisper",
                 "similarity_score": 0.85,
@@ -62,7 +61,7 @@ class AudioUpdateResponse(BaseModel):
         json_schema_extra = {
             "example": {
                 "session_id": 123,
-                "message": "Audio data updated successfully",
+                "message": "Audio transcribed and session updated successfully",
                 "updated_at": "2023-10-31T10:35:00Z"
             }
         }

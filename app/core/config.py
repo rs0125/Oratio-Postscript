@@ -14,9 +14,8 @@ class Settings(BaseSettings):
     app_version: str = Field(default="1.0.0", env="APP_VERSION")
     debug: bool = Field(default=False, env="DEBUG")
     
-    # Database - Supabase
-    supabase_url: str = Field(..., env="SUPABASE_URL")
-    supabase_key: str = Field(..., env="SUPABASE_KEY")
+    # Database - Supabase Session Pooler
+    supabase_pooler_connection_string: str = Field(..., env="SUPABASE_POOLER_CONNECTION_STRING")
     
     # OpenAI
     openai_api_key: str = Field(..., env="OPENAI_API_KEY")
@@ -24,11 +23,9 @@ class Settings(BaseSettings):
     
     # Performance and limits
     max_audio_size_mb: int = Field(default=25, env="MAX_AUDIO_SIZE_MB")
-    request_timeout_seconds: int = Field(default=300, env="REQUEST_TIMEOUT_SECONDS")
     
     # Security
     cors_origins: str = Field(default="*", env="CORS_ORIGINS")
-    max_request_size_mb: int = Field(default=26, env="MAX_REQUEST_SIZE_MB")  # Slightly larger than audio limit
     
     # Logging and monitoring
     log_level: str = Field(default="INFO", env="LOG_LEVEL")

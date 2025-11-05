@@ -12,7 +12,6 @@ from fastapi.responses import JSONResponse
 from app.models.requests import SimilarityRequest
 from app.models.responses import SimilarityResponse, ErrorResponse
 from app.services.session_service import SessionService
-from app.services.audio_service import AudioService
 from app.services.embedding_service import EmbeddingService
 from app.services.similarity_service import SimilarityService
 from app.core.exceptions import (
@@ -86,11 +85,9 @@ async def calculate_similarity(
     session_record = await session_service.get_session(session_id)
     logger.info(f"Retrieved session {session_id} successfully")
     
-    # Step 2: Process and transcribe audio
-    audio_service = AudioService()
-    transcription_result = await audio_service.process_and_transcribe(session_record.audio)
-    transcribed_text = transcription_result.text
-    logger.info(f"Audio transcription completed for session {session_id}")
+    # Step 2: Use stored transcribed text (no audio processing needed)
+    transcribed_text = session_record.audio
+    logger.info(f"Using stored transcribed text for session {session_id}")
     
     # Step 3: Generate embeddings using injected service
     try:

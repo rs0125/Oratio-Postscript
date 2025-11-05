@@ -1,28 +1,24 @@
 # FastAPI and ASGI server
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
+fastapi>=0.115.0,<0.117.0
+uvicorn[standard]>=0.32.0,<0.33.0
 
-# Configuration management
-pydantic[email]==2.5.0
-pydantic-settings==2.1.0
+# Configuration management - compatible with langchain and supabase
+pydantic>=2.11.7,<3.0.0
+pydantic-settings>=2.10.1,<3.0.0
 
-# Database - Supabase
-supabase==2.3.0
+# Database - PostgreSQL with asyncpg for Supabase Session Pooler
+asyncpg>=0.30.0,<0.31.0
 
-# OpenAI integration
-openai==1.3.7
+# OpenAI integration - compatible with langchain-openai
+openai>=1.104.2,<2.0.0
 
 # Audio processing
-pydub==0.25.1
+pydub>=0.25.1,<0.26.0
 
-# Vector operations
-numpy==1.24.3
-scipy==1.11.4
-
-# HTTP client
-httpx==0.25.2
+# Vector operations - using versions with pre-compiled wheels for Python 3.13
+numpy>=1.26.0,<2.2.0
+scipy>=1.11.0,<1.15.0
 
 # Environment variables
-python-dotenv==1.0.0#
- System monitoring
-psutil==5.9.6
+python-dotenv>=1.0.0,<2.0.0
+psutil>=5.9.0,<7.0.0

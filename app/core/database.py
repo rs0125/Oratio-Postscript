@@ -1,46 +1,74 @@
 """
-Database connection and client configuration for Supabase.
+Database connection and client configuration for Supabase Session Pooler.
 """
 from app.core.logging_config import get_logger
 from typing import Optional
-from supabase import create_client, Client
+import asyncpg
+import asyncio
+from contextlib import asynccontextmanager
 
 logger = get_logger(__name__)
 
 
 class DatabaseClient:
-    """Supabase database client with connection pooling."""
+    """Supabase session pooler database client with connection pooling."""
     
     def __init__(self):
-        self._client: Optional[Client] = None
+        self._pool: Optional[asyncpg.Pool] = None
         self._is_connected = False
     
-    @property
-    def client(self) -> Client:
-        """Get or create Supabase client instance."""
-        if self._client is None:
-            self._client = self._create_client()
-        return self._client
+    async def get_pool(self) -> asyncpg.Pool:
+        """Get or create connection pool."""
+        if self._pool is None:
+            self._pool = await self._create_pool()
+        return self._pool
     
-    def _create_client(self) -> Client:
-        """Create Supabase client with configuration."""
+    async def _create_pool(self) -> asyncpg.Pool:
+        """Create PostgreSQL connection pool using session pooler."""
         try:
             from app.core.config import settings
-            client = create_client(
-                supabase_url=settings.supabase_url,
-                supabase_key=settings.supabase_key
+            
+            # Create connection pool with session pooler connection string
+            pool = await asyncpg.create_pool(
+                dsn=settings.supabase_pooler_connection_string,
+                min_size=1,
+                max_size=10,
+                command_timeout=60,
+                server_settings={
+                    'jit': 'off'  # Disable JIT for better performance with pooling
+                }
             )
-            logger.info("Supabase client created successfully")
-            return client
+            
+            logger.info("Supabase session pooler connection pool created successfully")
+            self._is_connected = True
+            return pool
         except Exception as e:
-            logger.error(f"Failed to create Supabase client: {e}")
+            logger.error(f"Failed to create connection pool: {e}")
+            self._is_connected = False
             raise
+    
+    @asynccontextmanager
+    async def get_connection(self):
+        """Get a database connection from the pool."""
+        pool = await self.get_pool()
+        async with pool.acquire() as connection:
+            yield connection
+    
+    async def execute_query(self, query: str, *args):
+        """Execute a query and return results."""
+        async with self.get_connection() as conn:
+            return await conn.fetch(query, *args)
+    
+    async def execute_command(self, command: str, *args):
+        """Execute a command (INSERT, UPDATE, DELETE)."""
+        async with self.get_connection() as conn:
+            return await conn.execute(command, *args)
     
     async def health_check(self) -> bool:
         """Check database connection health."""
         try:
             # Simple query to test connection
-            result = self.client.table("sessions").select("id").limit(1).execute()
+            result = await self.execute_query("SELECT 1 as health_check LIMIT 1")
             self._is_connected = True
             logger.debug("Database health check passed")
             return True
@@ -54,14 +82,13 @@ class DatabaseClient:
         """Check if database is currently connected."""
         return self._is_connected
     
-    def disconnect(self):
-        """Disconnect from database."""
-        if self._client:
-            # Supabase client doesn't have explicit disconnect
-            # but we can reset the client instance
-            self._client = None
+    async def disconnect(self):
+        """Disconnect from database and close pool."""
+        if self._pool:
+            await self._pool.close()
+            self._pool = None
             self._is_connected = False
-            logger.info("Database client disconnected")
+            logger.info("Database connection pool closed")
 
 
 # Global database client instance

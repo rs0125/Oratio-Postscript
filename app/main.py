@@ -137,13 +137,15 @@ def create_app() -> FastAPI:
             "version": settings.app_version
         })
         
-        # Initialize database connection
+        # Initialize database connection pool
         try:
             from app.core.database import get_database_client
             db_client = get_database_client()
-            logger.info("Database connection initialized successfully")
+            # Initialize the connection pool
+            await db_client.get_pool()
+            logger.info("Database connection pool initialized successfully")
         except Exception as e:
-            logger.error(f"Failed to initialize database connection: {e}")
+            logger.error(f"Failed to initialize database connection pool: {e}")
             raise
         
         logger.info("Application startup completed successfully", extra={
@@ -159,7 +161,9 @@ def create_app() -> FastAPI:
         
         # Cleanup resources
         try:
-            # Add any cleanup logic here
+            from app.core.database import get_database_client
+            db_client = get_database_client()
+            await db_client.disconnect()
             logger.info("Resource cleanup completed")
         except Exception as e:
             logger.error(f"Error during resource cleanup: {e}")

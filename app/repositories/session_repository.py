@@ -1,10 +1,10 @@
 """
-Session repository for database operations.
+Session repository for database operations using Supabase Session Pooler.
 """
 from app.core.logging_config import get_logger
 from typing import Optional, List
 from datetime import datetime
-from supabase import Client
+import json
 from app.models.database import SessionRecord
 from app.core.database import DatabaseClient
 
@@ -12,16 +12,11 @@ logger = get_logger(__name__)
 
 
 class SessionRepository:
-    """Repository for session data access operations."""
+    """Repository for session data access operations using PostgreSQL connection."""
     
     def __init__(self, db_client: DatabaseClient):
         self.db_client = db_client
         self.table_name = "sessions"
-    
-    @property
-    def client(self) -> Client:
-        """Get Supabase client."""
-        return self.db_client.client
     
     async def get_by_id(self, session_id: int) -> Optional[SessionRecord]:
         """
@@ -39,13 +34,20 @@ class SessionRepository:
         try:
             logger.debug(f"Retrieving session with ID: {session_id}")
             
-            result = self.client.table(self.table_name).select("*").eq("id", session_id).execute()
+            query = f"SELECT * FROM {self.table_name} WHERE id = $1"
+            result = await self.db_client.execute_query(query, session_id)
             
-            if not result.data:
+            if not result:
                 logger.info(f"Session not found with ID: {session_id}")
                 return None
             
-            session_data = result.data[0]
+            # Convert asyncpg Record to dict
+            session_data = dict(result[0])
+            
+            # Handle JSONB fields
+            if session_data.get('questions') and isinstance(session_data['questions'], str):
+                session_data['questions'] = json.loads(session_data['questions'])
+            
             session_record = SessionRecord(**session_data)
             
             logger.debug(f"Successfully retrieved session: {session_id}")
@@ -55,13 +57,13 @@ class SessionRepository:
             logger.error(f"Failed to retrieve session {session_id}: {e}")
             raise
     
-    async def update_audio(self, session_id: int, audio_data: str) -> bool:
+    async def update_speech(self, session_id: int, speech_text: str) -> bool:
         """
-        Update audio data for an existing session.
+        Update transcribed text for an existing session (stored in audio column).
         
         Args:
             session_id: The session ID to update
-            audio_data: Base64 encoded audio data
+            speech_text: Transcribed speech text
             
         Returns:
             True if update successful, False otherwise
@@ -70,21 +72,21 @@ class SessionRepository:
             Exception: If database operation fails
         """
         try:
-            logger.debug(f"Updating audio for session: {session_id}")
+            logger.debug(f"Updating transcribed text for session: {session_id}")
             
-            result = self.client.table(self.table_name).update({
-                "audio": audio_data
-            }).eq("id", session_id).execute()
+            query = f"UPDATE {self.table_name} SET audio = $1 WHERE id = $2"
+            result = await self.db_client.execute_command(query, speech_text, session_id)
             
-            if not result.data:
+            # Check if any rows were affected
+            if result == "UPDATE 0":
                 logger.warning(f"No session found to update with ID: {session_id}")
                 return False
             
-            logger.info(f"Successfully updated audio for session: {session_id}")
+            logger.info(f"Successfully updated transcribed text for session: {session_id}")
             return True
             
         except Exception as e:
-            logger.error(f"Failed to update audio for session {session_id}: {e}")
+            logger.error(f"Failed to update transcribed text for session {session_id}: {e}")
             raise
     
     async def create(self, session_data: dict) -> SessionRecord:
@@ -105,14 +107,37 @@ class SessionRepository:
             
             # Ensure created_at is set
             if "created_at" not in session_data:
-                session_data["created_at"] = datetime.utcnow().isoformat()
+                session_data["created_at"] = datetime.utcnow()
             
-            result = self.client.table(self.table_name).insert(session_data).execute()
+            # Handle JSONB fields
+            questions_json = json.dumps(session_data.get('questions', {})) if session_data.get('questions') else None
             
-            if not result.data:
+            query = f"""
+                INSERT INTO {self.table_name} (speech, questions, created_by, generated_by, created_at, audio, original_paper)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                RETURNING *
+            """
+            
+            result = await self.db_client.execute_query(
+                query,
+                session_data.get('speech'),
+                questions_json,
+                session_data.get('created_by'),
+                session_data.get('generated_by'),
+                session_data['created_at'],
+                session_data.get('audio'),
+                session_data.get('original_paper')
+            )
+            
+            if not result:
                 raise Exception("Failed to create session - no data returned")
             
-            created_session = SessionRecord(**result.data[0])
+            # Convert result to dict and handle JSONB
+            created_data = dict(result[0])
+            if created_data.get('questions') and isinstance(created_data['questions'], str):
+                created_data['questions'] = json.loads(created_data['questions'])
+            
+            created_session = SessionRecord(**created_data)
             logger.info(f"Successfully created session with ID: {created_session.id}")
             return created_session
             
@@ -136,9 +161,10 @@ class SessionRepository:
         try:
             logger.debug(f"Deleting session with ID: {session_id}")
             
-            result = self.client.table(self.table_name).delete().eq("id", session_id).execute()
+            query = f"DELETE FROM {self.table_name} WHERE id = $1"
+            result = await self.db_client.execute_command(query, session_id)
             
-            if not result.data:
+            if result == "DELETE 0":
                 logger.warning(f"No session found to delete with ID: {session_id}")
                 return False
             
@@ -166,13 +192,21 @@ class SessionRepository:
         try:
             logger.debug(f"Listing sessions with limit: {limit}, offset: {offset}")
             
-            result = (self.client.table(self.table_name)
-                     .select("*")
-                     .order("created_at", desc=True)
-                     .range(offset, offset + limit - 1)
-                     .execute())
+            query = f"""
+                SELECT * FROM {self.table_name}
+                ORDER BY created_at DESC
+                LIMIT $1 OFFSET $2
+            """
             
-            sessions = [SessionRecord(**session_data) for session_data in result.data]
+            result = await self.db_client.execute_query(query, limit, offset)
+            
+            sessions = []
+            for row in result:
+                session_data = dict(row)
+                # Handle JSONB fields
+                if session_data.get('questions') and isinstance(session_data['questions'], str):
+                    session_data['questions'] = json.loads(session_data['questions'])
+                sessions.append(SessionRecord(**session_data))
             
             logger.debug(f"Retrieved {len(sessions)} sessions")
             return sessions
@@ -197,13 +231,10 @@ class SessionRepository:
         try:
             logger.debug(f"Checking if session exists: {session_id}")
             
-            result = (self.client.table(self.table_name)
-                     .select("id")
-                     .eq("id", session_id)
-                     .limit(1)
-                     .execute())
+            query = f"SELECT 1 FROM {self.table_name} WHERE id = $1 LIMIT 1"
+            result = await self.db_client.execute_query(query, session_id)
             
-            exists = len(result.data) > 0
+            exists = len(result) > 0
             logger.debug(f"Session {session_id} exists: {exists}")
             return exists
             

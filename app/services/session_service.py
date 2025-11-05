@@ -49,9 +49,9 @@ class SessionService:
             if session is None:
                 raise SessionNotFoundError(session_id)
             
-            # Validate session has required audio data
+            # Validate session has required transcribed text data
             if not session.audio or not session.audio.strip():
-                raise SessionValidationError(f"Session {session_id} has no audio data", {"session_id": session_id})
+                raise SessionValidationError(f"Session {session_id} has no transcribed text data", {"session_id": session_id})
             
             logger.info(f"Successfully retrieved session: {session_id}")
             return session
@@ -65,9 +65,9 @@ class SessionService:
                 raise DatabaseConnectionError(str(e), {"session_id": session_id})
             raise DatabaseError(str(e), {"session_id": session_id})
     
-    async def update_session_audio(self, session_id: int, audio_data: str) -> SessionRecord:
+    async def update_session_with_audio_transcription(self, session_id: int, audio_data: str) -> SessionRecord:
         """
-        Update audio data for an existing session.
+        Transcribe audio and update session with the transcribed text.
         
         Args:
             session_id: The session ID to update
@@ -82,7 +82,7 @@ class SessionService:
             Exception: For other database errors
         """
         try:
-            logger.info(f"Updating audio for session: {session_id}")
+            logger.info(f"Transcribing audio and updating session: {session_id}")
             
             if session_id <= 0:
                 raise SessionValidationError("Session ID must be a positive integer")
@@ -90,44 +90,46 @@ class SessionService:
             if not audio_data or not audio_data.strip():
                 raise SessionValidationError("Audio data cannot be empty")
             
-            # Validate base64 format (basic check)
-            try:
-                import base64
-                base64.b64decode(audio_data, validate=True)
-            except Exception:
-                raise SessionValidationError("Invalid base64 audio data format")
-            
             # Check if session exists first
             if not await self.repository.exists(session_id):
                 raise SessionNotFoundError(session_id)
             
-            # Update the audio data
-            success = await self.repository.update_audio(session_id, audio_data.strip())
+            # Transcribe the audio using AudioService
+            from app.services.audio_service import AudioService
+            audio_service = AudioService()
+            transcription_result = await audio_service.process_and_transcribe(audio_data.strip())
+            transcribed_text = transcription_result.text
+            
+            logger.info(f"Audio transcribed successfully for session {session_id}")
+            
+            # Update the session with transcribed text
+            success = await self.repository.update_speech(session_id, transcribed_text)
             
             if not success:
-                raise DatabaseError("Failed to update session audio", {"session_id": session_id})
+                raise DatabaseError("Failed to update session with transcribed text", {"session_id": session_id})
             
             # Return updated session
             updated_session = await self.repository.get_by_id(session_id)
             
-            logger.info(f"Successfully updated audio for session: {session_id}")
+            logger.info(f"Successfully transcribed and updated session: {session_id}")
             return updated_session
             
         except (SessionNotFoundError, SessionValidationError):
             raise
         except Exception as e:
-            logger.error(f"Failed to update session audio {session_id}: {e}")
+            logger.error(f"Failed to transcribe and update session {session_id}: {e}")
             # Wrap database errors
             if "connection" in str(e).lower() or "timeout" in str(e).lower():
                 raise DatabaseConnectionError(str(e), {"session_id": session_id})
             raise DatabaseError(str(e), {"session_id": session_id})
     
-    async def create_session(self, session_data: dict) -> SessionRecord:
+    async def create_session_with_audio(self, audio_data: str, **kwargs) -> SessionRecord:
         """
-        Create a new session with validation.
+        Create a new session by transcribing audio data.
         
         Args:
-            session_data: Dictionary containing session data
+            audio_data: Base64 encoded audio data
+            **kwargs: Additional session data (created_by, generated_by, etc.)
             
         Returns:
             Created SessionRecord
@@ -137,22 +139,26 @@ class SessionService:
             Exception: For database errors
         """
         try:
-            logger.info("Creating new session")
+            logger.info("Creating new session with audio transcription")
             
             # Validate required fields
-            if "audio" not in session_data or not session_data["audio"]:
+            if not audio_data or not audio_data.strip():
                 raise SessionValidationError("Audio data is required for session creation")
             
-            # Validate base64 format
-            try:
-                import base64
-                base64.b64decode(session_data["audio"], validate=True)
-            except Exception:
-                raise SessionValidationError("Invalid base64 audio data format")
+            # Transcribe the audio using AudioService
+            from app.services.audio_service import AudioService
+            audio_service = AudioService()
+            transcription_result = await audio_service.process_and_transcribe(audio_data.strip())
+            transcribed_text = transcription_result.text
             
-            # Set default values
-            if "created_at" not in session_data:
-                session_data["created_at"] = datetime.utcnow()
+            logger.info("Audio transcribed successfully for new session")
+            
+            # Prepare session data
+            session_data = {
+                "audio": transcribed_text,  # Store transcribed text in audio column
+                "created_at": datetime.utcnow(),
+                **kwargs  # Include any additional data like created_by, generated_by, questions
+            }
             
             created_session = await self.repository.create(session_data)
             
